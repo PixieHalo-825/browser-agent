@@ -1,0 +1,50 @@
+# 一键拉起容器化 MCP 工具服务器（streamable-http）
+#
+#   docker compose up -d
+#
+# 然后在 config.toml 里把对应 server 的定义换成 url 模式即可热插拔：
+#
+#   [mcp_servers.search]
+#   url = "http://localhost:8002/mcp"
+#
+# 增删服务 = 增删工具能力，无需改动 Agent 代码。
+
+services:
+  mcp-filesystem:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    command: python mcp_servers/filesystem_server.py
+    environment:
+      MCP_TRANSPORT: http
+      MCP_PORT: "8001"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./workspace:/app/workspace   # 文件工具只暴露工作区目录
+
+  mcp-search:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    command: python mcp_servers/search_server.py
+    environment:
+      MCP_TRANSPORT: http
+      MCP_PORT: "8002"
+    ports:
+      - "8002:8002"
+
+  # browser server 需要 Chromium，镜像较大，默认注释。
+  # 启用后把 [mcp_servers.browser] 配置为 url = "http://localhost:8003/mcp"
+  # mcp-browser:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.mcp
+  #   command: python mcp_servers/browser_server.py
+  #   environment:
+  #     MCP_TRANSPORT: http
+  #     MCP_PORT: "8003"
+  #   ports:
+  #     - "8003:8003"
+  #   # 需在 Dockerfile.mcp 中追加:
+  #   # RUN pip install playwright && playwright install --with-deps chromium

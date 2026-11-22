@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>数码商城 - 比价</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; background: #fafafa; margin: 0; }
+  h2 { margin: 16px 32px 8px; color: #333; }
+  .products { display: flex; gap: 24px; padding: 8px 32px; }
+  .card { width: 320px; background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; color: #222; }
+  .card .tag { display: inline-block; background: #e3f2fd; color: #1565c0; font-size: 12px;
+               padding: 2px 8px; border-radius: 4px; margin-bottom: 10px; }
+  .card .price { font-size: 24px; color: #bf360c; font-weight: bold; margin: 6px 0 12px; }
+  .card button { width: 100%; padding: 10px 0; background: #1976d2; color: #fff; border: none;
+                 border-radius: 6px; font-size: 15px; cursor: pointer; }
+  .card button:hover { background: #1565c0; }
+  .footnote { margin: 12px 32px; color: #999; font-size: 13px; }
+</style>
+</head>
+<body>
+<h2>热门数码产品</h2>
+<div class="products">
+  <div class="card">
+    <h3>蓝牙音箱 Mini</h3>
+    <span class="tag">包邮</span>
+    <div class="price">¥199</div>
+    <button data-test="viewA" onclick="window.__clicked='itemA'">查看价格</button>
+  </div>
+  <div class="card">
+    <h3>无线耳机 Pro</h3>
+    <span class="tag">热卖</span>
+    <div class="price">¥899</div>
+    <button data-test="viewB" onclick="window.__clicked='itemB'">查看价格</button>
+  </div>
+</div>
+<p class="footnote">两个按钮在 DOM 里完全同文本 —— 只有视觉上下文能区分它们属于哪张卡片。</p>
+<script>window.__clicked = '';</script>
+</body>
+</html>

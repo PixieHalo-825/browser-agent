@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>限时促销</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; background: #fafafa; margin: 0; }
+  .hero { padding: 32px 40px; background: linear-gradient(135deg, #fff3e0, #fff); }
+  .hero h1 { color: #e65100; margin: 0 0 8px; }
+  .price { font-size: 28px; color: #bf360c; font-weight: bold; }
+  .btn { display: inline-block; margin: 14px 0; padding: 10px 28px; background: #ff6d00;
+         color: #fff; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; }
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none;
+             align-items: center; justify-content: center; }
+  #overlay.open { display: flex; }
+  .dialog { position: relative; width: 360px; background: #fff; border-radius: 12px;
+            padding: 28px; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+  .dialog h3 { margin: 4px 0 10px; color: #333; }
+  .coupon { font-size: 40px; font-weight: 800; color: #d84315; letter-spacing: 2px; }
+  .dialog-close { position: absolute; top: 10px; right: 10px; width: 34px; height: 34px;
+                  border: none; background: transparent; cursor: pointer; padding: 4px; border-radius: 6px; }
+  .dialog-close:hover { background: #f5f5f5; }
+  .dialog .btn { background: #43a047; }
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1>双 11 限时大促</h1>
+  <p>旗舰降噪耳机 <span class="price">¥899</span>（原价 ¥1299）</p>
+  <button class="btn" data-test="claim" onclick="window.__clicked='claim'; document.getElementById('overlay').classList.add('open')">领取优惠券</button>
+</div>
+
+<div id="overlay">
+  <div class="dialog">
+    <!-- 关闭按钮：SVG 叉号，无文本无 aria —— DOM 通道无从下手 -->
+    <button class="dialog-close" data-test="close" onclick="window.__clicked='close'; document.getElementById('overlay').classList.remove('open')">
+      <svg width="22" height="22" viewBox="0 0 24 24"><path d="M5 5 L19 19 M19 5 L5 19" stroke="#666" stroke-width="2.6" stroke-linecap="round"/></svg>
+    </button>
+    <h3>恭喜获得满减券</h3>
+    <div class="coupon">¥100</div>
+    <p style="color:#888">满 500 元可用</p>
+    <button class="btn" data-test="use" onclick="window.__clicked='use'">去使用</button>
+  </div>
+</div>
+<script>window.__clicked = '';</script>
+</body>
+</html>

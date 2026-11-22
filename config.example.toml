@@ -1,0 +1,102 @@
+# ============================================================
+# Browser-Agent 配置模板
+# 复制为 config.toml 后填写你的 API Key（或用环境变量 LLM_API_KEY）
+# ============================================================
+
+[llm]
+# OpenAI 兼容端点：小米 MiMo（key 优先从环境变量 MIMO_API_KEY 读取，也可用 LLM_API_KEY）。
+# 也支持 DashScope/DeepSeek/OpenRouter/本地 vLLM 等任何 OpenAI 兼容服务。
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+api_key = ""
+# 文本推理模型（Planner / Executor / Reviewer）
+model = "mimo-v2.6-pro"
+# 视觉定位模型（GUI-Plus 兜底通道）：MiMo v2.6 系列原生支持图片输入
+vision_model = "mimo-v2.6-pro"
+# 视觉模型单独的端点（留空则复用 base_url/api_key）
+vision_base_url = ""
+vision_api_key = ""
+temperature = 0.0
+max_tokens = 4096
+
+[agent]
+max_plan_steps = 10        # 计划最多步骤数
+max_replans = 3            # Reviewer 触发 replan 的最大次数
+react_max_iterations = 8   # 单步骤 ReAct 循环上限
+
+# ------------------------------------------------------------
+# 可切换模型预设（Web UI 顶栏下拉框 / CLI model 命令）
+# 空字段继承 [llm]；指向其他服务端点时需配 base_url + api_key(_env)
+# ------------------------------------------------------------
+[[model_presets]]
+id = "mimo-pro"
+label = "MiMo v2.6 Pro"
+model = "mimo-v2.6-pro"
+vision_model = "mimo-v2.6-pro"
+
+[[model_presets]]
+id = "mimo-flash"
+label = "MiMo v2.6 Flash（快）"
+model = "mimo-v2.6-flash"
+vision_model = "mimo-v2.6-flash"
+
+[[model_presets]]
+id = "qwen-max"
+label = "Qwen Max（阿里云百炼）"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen-max"
+vision_model = "qwen-vl-max"
+api_key_env = "DASHSCOPE_API_KEY"
+
+[browser]
+headless = true
+viewport_width = 1280
+viewport_height = 800
+navigation_timeout_ms = 30000
+action_timeout_ms = 10000
+
+[dom]
+max_elements = 80          # 送入 LLM 的可交互元素上限
+max_text_length = 60
+
+[vision]
+enabled = true             # GUI-Plus 视觉兜底通道开关
+min_confidence = 0.55      # DOM 通道低于该置信度时触发视觉兜底
+
+[sandbox]
+# auto: 有 Daytona key 用 Daytona，否则本地 Docker；也可强制 docker / daytona
+provider = "auto"
+timeout = 30
+memory_limit = "512m"
+cpu_limit = 1.0
+network_enabled = false    # 代码执行沙箱默认断网
+daytona_api_key = ""
+daytona_server_url = ""
+
+[mcp]
+enabled = true
+# 热插拔：增删此列表即可启停对应 server（定义见 [mcp_servers.*]）
+servers = ["filesystem", "search"]
+
+[search]
+provider = "duckduckgo"
+max_results = 5
+
+[workspace]
+root = "./workspace"
+
+# ------------------------------------------------------------
+# MCP Server 启动定义（stdio 传输）。新增工具 server 只需：
+# 1. 在 mcp_servers/ 下写一个 FastMCP server
+# 2. 在这里加一段定义 + 加入 mcp.servers 列表
+# ------------------------------------------------------------
+[mcp_servers.filesystem]
+command = "python"
+args = ["mcp_servers/filesystem_server.py"]
+
+[mcp_servers.search]
+command = "python"
+args = ["mcp_servers/search_server.py"]
+
+[mcp_servers.browser]
+command = "python"
+args = ["mcp_servers/browser_server.py"]

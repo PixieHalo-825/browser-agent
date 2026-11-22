@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>图形验证</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; background: #fafafa; margin: 0; }
+  h2 { margin: 16px 24px 8px; color: #333; }
+  canvas { display: block; margin: 8px 24px; border: 1px solid #ccc; background: #fff; }
+  .hint { margin: 8px 24px; color: #666; }
+</style>
+</head>
+<body>
+<h2>请点击指定的图形按钮</h2>
+<canvas id="board" width="920" height="380"></canvas>
+<p class="hint">（图形绘制在 canvas 上，DOM 中不存在任何按钮元素）</p>
+<script>
+window.__clicked = '';
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+
+const shapes = [
+  { name: 'circle',   color: '#e53935', hit: (x, y) => (x-125)**2 + (y-190)**2 <= 68*68 },
+  { name: 'square',   color: '#1e88e5', hit: (x, y) => x >= 320 && x <= 460 && y >= 120 && y <= 260 },
+  { name: 'triangle', color: '#43a047', hit: (x, y) => {
+      // triangle with apex (650,120), base (560,265)-(740,265)
+      const inBox = x >= 540 && x <= 760 && y >= 110 && y <= 275;
+      if (!inBox) return false;
+      const t = (y - 120) / (265 - 120);           // 0 apex -> 1 base
+      const halfW = 40 + t * 90;                    // half width at this height
+      return Math.abs(x - 650) <= halfW;
+  } },
+  { name: 'star',     color: '#fdd835', hit: (x, y) => (x-850)**2 + (y-190)**2 <= 62*62 },
+];
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI * i) / points - Math.PI / 2;
+    ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+  }
+  ctx.closePath();
+}
+
+function render(highlight) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // circle
+  ctx.fillStyle = shapes[0].color;
+  ctx.beginPath(); ctx.arc(125, 190, 68, 0, Math.PI * 2); ctx.fill();
+  if (highlight === 'circle') { ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke(); }
+  // square
+  ctx.fillStyle = shapes[1].color;
+  ctx.fillRect(320, 120, 140, 140);
+  if (highlight === 'square') { ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.strokeRect(320, 120, 140, 140); }
+  // triangle
+  ctx.fillStyle = shapes[2].color;
+  ctx.beginPath(); ctx.moveTo(650, 120); ctx.lineTo(560, 265); ctx.lineTo(740, 265); ctx.closePath(); ctx.fill();
+  if (highlight === 'triangle') { ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke(); }
+  // star
+  ctx.fillStyle = shapes[3].color;
+  drawStar(850, 190, 62, 26, 5); ctx.fill();
+  if (highlight === 'star') { ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke(); }
+}
+render();
+
+// Click handler registered via addEventListener: the canvas carries no
+// onclick attribute, so DOM extraction finds no interactive element at all.
+canvas.addEventListener('click', (event) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left, y = event.clientY - rect.top;
+  for (const shape of shapes) {
+    if (shape.hit(x, y)) {
+      window.__clicked = shape.name;
+      render(shape.name);
+      return;
+    }
+  }
+  window.__clicked = 'miss';
+  render();
+});
+</script>
+</body>
+</html>

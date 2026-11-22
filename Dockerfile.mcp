@@ -1,0 +1,16 @@
+# MCP Server 容器镜像（streamable-http transport）
+# 供 docker-compose.yml 拉起独立的工具服务器，实现工具层解耦/热插拔。
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir "mcp>=2.0" duckduckgo-search
+
+COPY mcp_servers/ ./mcp_servers/
+COPY app/ ./app/
+
+ENV MCP_TRANSPORT=http \
+    PYTHONUNBUFFERED=1
+
+# 默认启动 search server；compose 中每个服务覆盖 command
+CMD ["python", "mcp_servers/search_server.py"]
