@@ -101,10 +101,17 @@ class LLM:
         )
         message = response.choices[0].message
         if message.tool_calls:
+            raw = message.tool_calls[0].function.arguments
             try:
-                return json.loads(message.tool_calls[0].function.arguments)["result"]
-            except (json.JSONDecodeError, KeyError, IndexError, TypeError):
-                logger.warning("Failed to parse structured output: %s", message.tool_calls[0].function.arguments)
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse structured output: %s", raw)
+            else:
+                # Models are asked to wrap the payload in {"result": ...}; some
+                # (e.g. Bailian gui-plus) submit the payload itself.
+                if isinstance(parsed, dict):
+                    return parsed.get("result", parsed)
+                logger.warning("Unexpected structured output: %s", raw)
         # Fallback: try to parse raw content as JSON.
         content = message.content or ""
         try:

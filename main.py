@@ -16,7 +16,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from app.agent.graph import run_agent
-from app.config import get_config
+from app.config import api_key_env_for, get_config
 
 console = Console()
 
@@ -46,7 +46,7 @@ def print_env_report() -> None:
     table.add_row("LLM 端点", cfg.llm.base_url)
     table.add_row("文本模型", cfg.llm.model)
     table.add_row("视觉模型", cfg.llm.vision_model)
-    ok_key = "✅ 已配置" if cfg.llm.api_key else "❌ 未配置（config.toml 或环境变量 LLM_API_KEY）"
+    ok_key = "✅ 已配置" if cfg.llm.api_key else f"❌ 未配置（环境变量 {api_key_env_for(cfg.llm.base_url) or 'LLM_API_KEY'} 或 config.toml 的 api_key）"
     table.add_row("API Key", ok_key)
     table.add_row("视觉兜底", "✅ 开启" if cfg.vision.enabled else "⛔ 关闭")
     table.add_row("沙箱策略", cfg.sandbox.provider)
@@ -154,7 +154,7 @@ async def main() -> None:
                   "[dim]  • 打开 https://example.com 并提取页面标题\n"
                   "  • 搜索\"Playwright 最新版本\"，总结要点并保存到 notes.md\n"
                   "  • model          查看可切换的模型预设\n"
-                  "  • model <id>     切换模型（如 model mimo-flash）\n"
+                  "  • model <id>     切换模型（如 model qwen-plus）\n"
                   "  • exit 退出[/dim]\n")
 
     while True:

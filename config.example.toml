@@ -1,17 +1,19 @@
 # ============================================================
 # Browser-Agent 配置模板
-# 复制为 config.toml 后填写你的 API Key（或用环境变量 LLM_API_KEY）
+# 不建 config.toml 也能运行（自动回退到本模板），只需设置环境变量 DASHSCOPE_API_KEY；
+# 需要改模型/端点/预设时，复制为 config.toml 再改。
 # ============================================================
 
 [llm]
-# OpenAI 兼容端点：小米 MiMo（key 优先从环境变量 MIMO_API_KEY 读取，也可用 LLM_API_KEY）。
-# 也支持 DashScope/DeepSeek/OpenRouter/本地 vLLM 等任何 OpenAI 兼容服务。
-base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+# OpenAI 兼容端点：默认阿里云百炼（DashScope），key 从环境变量 DASHSCOPE_API_KEY 读取。
+# 也支持 MiMo/DeepSeek/OpenRouter/本地 vLLM 等任何 OpenAI 兼容服务：改 base_url 即可，
+# key 用 LLM_API_KEY（通用）或直接填 api_key。
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 api_key = ""
 # 文本推理模型（Planner / Executor / Reviewer）
-model = "mimo-v2.6-pro"
-# 视觉定位模型（GUI-Plus 兜底通道）：MiMo v2.6 系列原生支持图片输入
-vision_model = "mimo-v2.6-pro"
+model = "qwen-max"
+# 视觉定位模型（GUI-Plus 兜底通道）：需同时支持图片输入与工具调用
+vision_model = "qwen3-vl-plus"
 # 视觉模型单独的端点（留空则复用 base_url/api_key）
 vision_base_url = ""
 vision_api_key = ""
@@ -28,24 +30,23 @@ react_max_iterations = 8   # 单步骤 ReAct 循环上限
 # 空字段继承 [llm]；指向其他服务端点时需配 base_url + api_key(_env)
 # ------------------------------------------------------------
 [[model_presets]]
+id = "qwen-plus"
+label = "Qwen Plus（百炼·均衡）"
+model = "qwen-plus"
+
+[[model_presets]]
+id = "qwen-flash"
+label = "Qwen Flash（百炼·快速）"
+model = "qwen-flash"
+
+# 换一家服务商：带上它自己的端点和 key 环境变量
+[[model_presets]]
 id = "mimo-pro"
-label = "MiMo v2.6 Pro"
+label = "MiMo v2.6 Pro（小米）"
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+api_key_env = "MIMO_API_KEY"
 model = "mimo-v2.6-pro"
 vision_model = "mimo-v2.6-pro"
-
-[[model_presets]]
-id = "mimo-flash"
-label = "MiMo v2.6 Flash（快）"
-model = "mimo-v2.6-flash"
-vision_model = "mimo-v2.6-flash"
-
-[[model_presets]]
-id = "qwen-max"
-label = "Qwen Max（阿里云百炼）"
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-model = "qwen-max"
-vision_model = "qwen-vl-max"
-api_key_env = "DASHSCOPE_API_KEY"
 
 [browser]
 headless = true

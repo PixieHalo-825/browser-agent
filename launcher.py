@@ -17,6 +17,8 @@ from pathlib import Path
 from tkinter import BOTH, BOTTOM, LEFT, RIGHT, X, ttk
 import tkinter as tk
 
+from app.config import api_key_env_for, get_config
+
 ROOT = Path(__file__).resolve().parent
 VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
 PY = str(VENV_PY if VENV_PY.exists() else sys.executable)
@@ -33,22 +35,15 @@ BORDER = "#30363d"
 
 
 def detect_api_key() -> bool:
-    """MIMO_API_KEY / LLM_API_KEY env or api_key in config.toml."""
-    if os.environ.get("MIMO_API_KEY") or os.environ.get("LLM_API_KEY"):
-        return True
-    try:
-        import tomllib
+    """True when the active config resolves to a non-empty API key.
 
-        for name in ("config.toml", "config.example.toml"):
-            path = ROOT / name
-            if path.exists():
-                with open(path, "rb") as f:
-                    data = tomllib.load(f)
-                if data.get("llm", {}).get("api_key"):
-                    return True
+    Goes through the real config loader so the check follows whatever endpoint
+    (and therefore whichever key variable) the config points at.
+    """
+    try:
+        return bool(get_config().llm.api_key)
     except Exception:
-        pass
-    return False
+        return False
 
 
 def detect_playwright() -> bool:
@@ -169,7 +164,8 @@ class Launcher(tk.Tk):
             set_result("venv", VENV_PY.exists(), "就绪" if VENV_PY.exists() else "未创建，先 python -m venv .venv")
             set_result("playwright", detect_playwright(), "已安装" if detect_playwright() else "未安装")
             has_key = detect_api_key()
-            set_result("api_key", has_key, "已配置" if has_key else "MIMO_API_KEY 未设置")
+            key_env = api_key_env_for(get_config().llm.base_url) or "LLM_API_KEY"
+            set_result("api_key", has_key, "已配置" if has_key else f"{key_env} 未设置")
             has_docker = detect_docker()
             set_result("docker", has_docker, "完整隔离" if has_docker else "未安装，沙箱降级 local")
             self.after(0, lambda: self.status.config(

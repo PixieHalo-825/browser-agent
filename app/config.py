@@ -2,7 +2,9 @@
 
 Reads ``config.toml`` from the project root (falls back to safe defaults when
 the file is missing). Secrets such as API keys can also be provided through
-environment variables, which take precedence over the file.
+environment variables, which take precedence over the file. The LLM key comes
+from ``LLM_API_KEY`` or from the variable of the provider ``base_url`` points
+at, so keys of several providers never get mixed up.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -29,10 +32,12 @@ class LLMConfig(BaseModel):
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key: str = ""
     model: str = "qwen-max"
-    # Vision model used by the GUI-Plus locator fallback channel.
+    # Vision model used by the GUI-Plus locator fallback channel. It must accept
+    # images together with forced tool calls (the structured-output protocol).
+    # qwen-vl-max is no longer listed on Bailian; qwen3-vl-plus is.
     vision_base_url: str = ""  # empty -> reuse base_url
     vision_api_key: str = ""  # empty -> reuse api_key
-    vision_model: str = "qwen-vl-max"
+    vision_model: str = "qwen3-vl-plus"
     temperature: float = 0.0
     max_tokens: int = 4096
     timeout: float = 120.0
@@ -144,8 +149,14 @@ class AppConfig(BaseModel):
         return root
 
 
+_GENERIC_KEY_ENV = "LLM_API_KEY"
+# Dedicated API-key variable of each known OpenAI-compatible provider host.
+_PROVIDER_KEY_ENV = {
+    "dashscope.aliyuncs.com": "DASHSCOPE_API_KEY",  # 阿里云百炼（默认端点）
+    "xiaomimimo.com": "MIMO_API_KEY",
+}
+
 _ENV_OVERRIDES = {
-    "llm.api_key": ("LLM_API_KEY", "MIMO_API_KEY"),
     "llm.base_url": "LLM_BASE_URL",
     "llm.model": "LLM_MODEL",
     "llm.vision_model": "VISION_MODEL",
@@ -154,15 +165,43 @@ _ENV_OVERRIDES = {
 }
 
 
+def api_key_env_for(base_url: str) -> str:
+    """Dedicated key variable of the provider ``base_url`` points at.
+
+    Returns ``""`` for unknown providers, which then rely on ``LLM_API_KEY``
+    or an explicit ``api_key``.
+    """
+    host = urlparse(base_url).hostname or ""
+    for provider_host, env_name in _PROVIDER_KEY_ENV.items():
+        if host == provider_host or host.endswith("." + provider_host):
+            return env_name
+    return ""
+
+
+def _env_api_key(llm_section: dict[str, Any]) -> str:
+    """API key from the environment for the endpoint the config points at.
+
+    ``LLM_API_KEY`` always wins (endpoint-agnostic, explicit user intent).
+    Otherwise only the variable of the *matching* provider is used, so a
+    machine holding several providers' keys never sends one provider's key to
+    another provider's endpoint.
+    """
+    if os.environ.get(_GENERIC_KEY_ENV):
+        return os.environ[_GENERIC_KEY_ENV]
+    env_name = api_key_env_for(llm_section.get("base_url", ""))
+    return os.environ.get(env_name, "") if env_name else ""
+
+
 def _apply_env_overrides(data: dict[str, Any]) -> None:
-    for path, env_names in _ENV_OVERRIDES.items():
-        if isinstance(env_names, str):
-            env_names = (env_names,)
-        value = next((os.environ[n] for n in env_names if os.environ.get(n)), None)
+    for path, env_name in _ENV_OVERRIDES.items():
+        value = os.environ.get(env_name)
         if not value:
             continue
         section, key = path.split(".")
         data.setdefault(section, {})[key] = value
+    api_key = _env_api_key(data.get("llm", {}))
+    if api_key:
+        data.setdefault("llm", {})["api_key"] = api_key
 
 
 def load_config(path: Optional[Path] = None) -> AppConfig:

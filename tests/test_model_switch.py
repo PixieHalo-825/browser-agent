@@ -54,8 +54,10 @@ def test_apply_and_reset_switch_models():
 
 
 def test_config_presets_loaded():
-    from app.config import get_config
+    # Read the tracked template, not the local (untracked) config.toml: what
+    # the test asserts is what GitHub users get out of the box.
+    from app.config import PROJECT_ROOT, load_config
 
-    presets = {p.id for p in get_config().model_presets}
-    assert "mimo-flash" in presets
-    assert "qwen-max" in presets
+    presets = {p.id for p in load_config(PROJECT_ROOT / "config.example.toml").model_presets}
+    assert "qwen-plus" in presets
+    assert "mimo-pro" in presets

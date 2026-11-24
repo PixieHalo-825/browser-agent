@@ -3,7 +3,7 @@
 基于 **OpenManus 架构**（Agent 层次 + 工具集 + 规划流思想）并用 **LangGraph** 重构为分层状态机的自主浏览器 Agent，解决传统 RPA 无法处理的动态网页交互与复杂推理任务（跨平台比价、竞品分析）。
 
 ```
-Python 3.11+ · LangGraph · Playwright · MiMo-V2.6 (GUI-Plus) · Docker/Daytona · MCP Protocol
+Python 3.11+ · LangGraph · Playwright · Qwen-Max/Qwen3-VL (GUI-Plus) · Docker/Daytona · MCP Protocol
 ```
 
 ## 四大核心设计
@@ -26,10 +26,10 @@ pip install -r requirements.txt
 # 2. 安装浏览器内核
 python -m playwright install chromium
 
-# 3. 配置 LLM（任意 OpenAI 兼容端点）
-copy config.example.toml config.toml
-# 默认已指向小米 MiMo（https://token-plan-cn.xiaomimimo.com/v1），
-# key 从环境变量读取：set MIMO_API_KEY=xxx（或 config.toml 里直接填 api_key）
+# 3. 配置 LLM（默认阿里云百炼，任何 OpenAI 兼容端点均可）
+set DASHSCOPE_API_KEY=sk-xxx      # 默认端点从这里读 key（Linux/Mac: export）
+# 不建 config.toml 也能直接跑（回退到 config.example.toml 的默认值）；
+# 需要改模型/端点/预设时：copy config.example.toml config.toml 再改
 
 # 4. 启动
 launcher.bat                   # 🚀 图形启动器（推荐）：环境自检 + 一键启动
@@ -66,11 +66,11 @@ run_web.bat                    # 或 .venv\Scripts\python webui.py
 - 顶栏**模型下拉框**：即选即切（任务运行中禁用）
 - 支持运行中取消任务
 
-**模型切换**：预设声明在 `config.toml [[model_presets]]`（默认含 MiMo Pro / Flash / Ultraspeed 和 Qwen Max 四个）。Web 顶栏下拉切换，或 CLI 中 `model` 查看、`model mimo-flash` 切换。指向其他端点的预设配 `base_url + api_key`（或 `api_key_env` 指定环境变量名）；空字段自动继承 `[llm]` 默认值。
+**模型切换**：预设声明在 `config.toml [[model_presets]]`（模板默认含 Qwen Plus / Qwen Flash / MiMo Pro 三个）。Web 顶栏下拉切换，或 CLI 中 `model` 查看、`model qwen-plus` 切换。指向其他端点的预设配 `base_url + api_key`（或 `api_key_env` 指定环境变量名）；空字段自动继承 `[llm]` 默认值。
 
 技术：FastAPI + WebSocket 事件流（复用 CLI 的 `run_agent(on_event=...)` 回调，前后端同一套事件协议），单文件前端无构建依赖。
 
-模型说明：默认 `mimo-v2.6-pro`（文本/工具调用/图片输入三合一，Planner/Executor/Reviewer 与 GUI-Plus 视觉通道共用）；轻量场景可换 `mimo-v2.6-flash`（config.toml `model` 与 `vision_model` 字段）。其他 OpenAI 兼容端点（DashScope qwen-max/qwen-vl-max、DeepSeek 等）改 `base_url` + `api_key` 即可。
+模型说明：默认指向阿里云百炼——`qwen-max`（文本/工具调用，Planner/Executor/Reviewer 共用）+ `qwen3-vl-plus`（GUI-Plus 视觉通道，图片输入 + 结构化输出）。key 按端点自动解析：百炼读 `DASHSCOPE_API_KEY`，小米 MiMo 读 `MIMO_API_KEY`，通用可用 `LLM_API_KEY`——多把 key 共存时不会发错端点。视觉定位对坐标系约定不一致的模型（Qwen3-VL 用 0–1000 网格坐标，MiMo/gui-plus 用像素）会自动探测并换算，无需手动配置。
 
 示例任务：
 
@@ -196,6 +196,6 @@ browser-agent/
 
 ## 已知限制
 
-- 视觉通道依赖 VLM 的 grounding 质量，推荐 qwen-vl-max 及以上；弱模型下 SoM 模式比 bbox 回归更稳
+- 视觉通道依赖 VLM 的 grounding 质量，推荐 qwen3-vl-plus 及以上；弱模型下 SoM 模式比 bbox 回归更稳
 - DuckDuckGo 搜索偶发反爬限流（可换 provider）
 - Windows 下未安装 Docker Desktop 时沙箱降级为本地子进程（无网络隔离，启动时警告）

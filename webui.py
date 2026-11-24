@@ -243,7 +243,7 @@ async def api_create_task(body: dict[str, Any]):
     if _current is not None and not _current[1].done():
         raise HTTPException(409, "已有任务在运行中，请等待完成或先取消")
     if not get_config().llm.api_key:
-        raise HTTPException(400, "未配置 API Key（环境变量 MIMO_API_KEY 或 config.toml）")
+        raise HTTPException(400, "未配置 API Key（默认读环境变量 DASHSCOPE_API_KEY，或 config.toml 的 api_key）")
 
     record = TaskRecord(task_id=uuid.uuid4().hex[:12], task=task)
     _tasks[record.task_id] = record

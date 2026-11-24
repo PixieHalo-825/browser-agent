@@ -1,6 +1,7 @@
 """Vision channel of the GUI-Plus locator.
 
-Two modes, both backed by an OpenAI-compatible VLM (e.g. qwen-vl-max):
+Two modes, both backed by an OpenAI-compatible VLM (e.g. qwen3-vl-plus on
+Alibaba Cloud Bailian):
 
 - **Set-of-Mark selection**: DOM candidates are drawn as numbered boxes on the
   screenshot and the model picks the number matching the target description.
@@ -12,8 +13,9 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 from dataclasses import dataclass
-from typing import Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 from PIL import Image, ImageDraw
 
@@ -90,6 +92,74 @@ Rules:
 - If the target is not present, set bbox to [0, 0, 0, 0] and confidence to 0.0."""
 
 
+# --- coordinate space -------------------------------------------------------
+# Models disagree on what the numbers in ``bbox`` mean even when the prompt asks
+# for pixels: qwen3-vl answers on a 0-1000 grid relative to the image, while
+# others (MiMo, gui-plus) answer in image pixels. Rather than hardcoding model
+# names, the convention is probed once per model with a synthetic image of known
+# geometry. The two possible answers are then far apart:
+#   image pixels -> roughly (300, 100, 340, 140)
+#   0-1000 grid  -> roughly (750, 500, 850, 700)
+_CALIB_SIZE = (400, 200)
+_CALIB_BOX = (300, 100, 340, 140)
+_CALIB_TOLERANCE = 30  # max distance in px between reported and true centre
+
+PIXEL_SPACE = "pixel"
+GRID_SPACE = "grid-1000"
+_coordinate_spaces: dict[str, str] = {}  # model name -> detected space
+
+
+def _calibration_image() -> Image.Image:
+    image = Image.new("RGB", _CALIB_SIZE, (255, 255, 255))
+    ImageDraw.Draw(image).rectangle(_CALIB_BOX, fill=(0, 0, 0))
+    return image
+
+
+def classify_coordinate_space(box: Sequence[float]) -> str:
+    """Which convention a calibration answer uses; ``""`` when neither fits."""
+    if len(box) != 4:
+        return ""
+    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    true_cx = (_CALIB_BOX[0] + _CALIB_BOX[2]) / 2
+    true_cy = (_CALIB_BOX[1] + _CALIB_BOX[3]) / 2
+    width, height = _CALIB_SIZE
+    errors = {
+        PIXEL_SPACE: math.hypot(cx - true_cx, cy - true_cy),
+        GRID_SPACE: math.hypot(cx / 1000 * width - true_cx, cy / 1000 * height - true_cy),
+    }
+    best = min(errors, key=errors.get)
+    return best if errors[best] <= _CALIB_TOLERANCE else ""
+
+
+def to_pixels(box: Sequence[float], space: str, width: int, height: int) -> tuple[float, float, float, float]:
+    """Convert a model-reported box to pixel coordinates of a ``width x height`` image."""
+    x1, y1, x2, y2 = box
+    if space == GRID_SPACE:
+        return (x1 / 1000 * width, y1 / 1000 * height, x2 / 1000 * width, y2 / 1000 * height)
+    return (x1, y1, x2, y2)
+
+
+async def coordinate_space(llm: Any, model: str) -> str:
+    """Coordinate convention of ``model`` (probed once per process)."""
+    if model in _coordinate_spaces:
+        return _coordinate_spaces[model]
+    try:
+        result = await llm.ask_json(
+            [{"role": "user", "content": _GROUND_PROMPT.format(target="the solid black square")}],
+            images=[_calibration_image()],
+        )
+        detected = classify_coordinate_space([float(v) for v in (result.get("bbox") or [])])
+    except Exception as exc:
+        logger.warning("Coordinate-space probe for %s failed (%s); assuming pixels", model, exc)
+        return PIXEL_SPACE  # transient failure: do not cache
+    space = detected or PIXEL_SPACE
+    if not detected:
+        logger.warning("Could not determine the coordinate space of %s (answer: %s); assuming pixels", model, result)
+    _coordinate_spaces[model] = space
+    logger.info("Coordinate space of %s: %s", model, space)
+    return space
+
+
 class VisionLocator:
     """VLM-based element location (fallback channel of GUI-Plus)."""
 
@@ -157,7 +227,11 @@ class VisionLocator:
                 reason=f"vision rejected (conf={confidence:.2f})",
                 confidence=confidence,
             )
-        # Map back from the scaled image to original screenshot coordinates.
+        # Bring the reported box into pixels of the *sent* image (models differ
+        # in coordinate convention, see coordinate_space), then map it back to
+        # the original screenshot.
+        space = await coordinate_space(llm, llm.config.model)
+        x1, y1, x2, y2 = to_pixels((x1, y1, x2, y2), space, scaled.width, scaled.height)
         inv = 1.0 / scale
         bbox = (
             round(x1 * inv),
