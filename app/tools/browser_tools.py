@@ -64,7 +64,8 @@ class BrowserClick(BaseTool):
         outcome = await click(page, result)
         await page.wait_for_timeout(600)  # let handlers/animations settle
         title = await page.title()
-        return f"{outcome}\n点击后页面标题: {title}"
+        note = f"\n⚠ {result.warning}" if result.warning else ""
+        return f"{outcome}\n点击后页面标题: {title}{note}"
 
 
 class BrowserType(BaseTool):
@@ -94,6 +95,8 @@ class BrowserType(BaseTool):
             await page.keyboard.press("Enter")
             await page.wait_for_timeout(800)
             outcome += " 并按下回车"
+        if result.warning:
+            outcome += f"\n⚠ {result.warning}"
         return outcome
 
 

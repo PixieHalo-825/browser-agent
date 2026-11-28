@@ -40,6 +40,7 @@ launcher.bat                   # 🚀 图形启动器（推荐）：环境自检
 启动器功能：
 
 - **环境自检**：虚拟环境 / Playwright / API Key / Docker 四项状态灯（后台线程检测，不卡界面）
+- **🐳 启动 Docker Desktop**：只在 Docker 已安装但引擎没运行时出现，点击后启动并等待就绪
 - **🌐 Web 界面**：启动/停止 Web 服务（按钮切换），启动后自动打开浏览器
 - **⌨ CLI 控制台** / **📊 定位评测** / **✅ 测试套件**：各在新终端窗口运行
 
@@ -127,7 +128,7 @@ Agent 代码零改动——Executor 只看到统一的工具注册表 `app/mcp/r
 
 | provider | 行为 |
 |----------|------|
-| `auto`（默认） | Daytona（有 API key 时）→ 本地 Docker → 本地子进程（降级时明确警告无隔离） |
+| `auto`（默认） | Daytona（有 API key 时）→ 本地 Docker → 本地子进程（降级时明确警告无隔离）。Docker Desktop 已安装但引擎没开时，会自动把它启动起来并等待就绪 |
 | `docker` | 每次执行临时容器：`network=none` + `read_only` + `mem_limit` + 超时 kill |
 | `daytona` | daytona-sdk 云沙箱（`pip install daytona-sdk` + `DAYTONA_API_KEY`） |
 
@@ -206,6 +207,15 @@ browser-agent/
 
 ## 已知限制
 
-- 视觉通道依赖 VLM 的 grounding 质量，推荐 qwen3-vl-plus 及以上；弱模型下 SoM 模式比 bbox 回归更稳
-- DuckDuckGo 搜索偶发反爬限流（可换 provider）
-- Windows 下未安装 Docker Desktop（或引擎未启动）时沙箱降级为本地子进程（无网络隔离，启动时警告）
+下面两条是大模型能力带来的硬约束，工程上只能加防护，不能根除：
+
+- **视觉定位的准确度有上限**。已做的防护：坐标系自动探测与换算、越界坐标直接拒绝、点击前检查落点（落在空白背景上判为定位失败，而不是盲点）。弱模型下 SoM 模式仍比 bbox 回归更稳，推荐 qwen3-vl-plus 及以上
+- **复杂网站上的长链路任务无法保证一次成功**。已做的缓解：每步最多 8 轮工具调用、重规划上限 3 次、同一调用连续 3 次得到相同结果时提示模型换方法
+
+早先的三条限制已经处理掉：
+
+| 原限制 | 现在的行为 |
+|--------|-----------|
+| DuckDuckGo 搜索被限流 | 多个搜索源按顺序自动切换（`[search] providers`，默认 Bing → DuckDuckGo → 百炼搜索接口），单个搜索源失效不影响搜索 |
+| Docker 引擎没启动时沙箱悄悄降级 | Docker Desktop 已安装但未运行时自动启动并等待（`[sandbox] auto_start_docker`），启动器里也有一键启动按钮 |
+| 视觉模型给错坐标时照样点击 | 落点校验：视口外或空白背景上的坐标判为定位失败；DOM 目标被遮挡时照常点击，但提示智能体核对效果 |

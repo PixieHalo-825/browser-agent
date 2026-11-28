@@ -26,6 +26,8 @@ pydantic-settings>=2.7.0
 pillow>=11.0.0
 rich>=13.9.0
 tomli-w>=1.0.0
+httpx>=0.27.0
+# Search sources: Bing and the Bailian API need nothing extra; this is the optional DuckDuckGo one
 duckduckgo-search>=8.0.0
 
 # Tests

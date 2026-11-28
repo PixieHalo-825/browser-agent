@@ -232,6 +232,15 @@ class VisionLocator:
         # the original screenshot.
         space = await coordinate_space(llm, llm.config.model)
         x1, y1, x2, y2 = to_pixels((x1, y1, x2, y2), space, scaled.width, scaled.height)
+        # A box whose centre left the screenshot is a grounding miss, not an
+        # element; clicking the clamped edge would hit something unrelated.
+        centre_x, centre_y = (x1 + x2) / 2, (y1 + y2) / 2
+        if not (0 <= centre_x < scaled.width and 0 <= centre_y < scaled.height):
+            return VisionResult(
+                success=False,
+                reason=f"box centre ({centre_x:.0f},{centre_y:.0f}) is outside the screenshot",
+                confidence=confidence,
+            )
         inv = 1.0 / scale
         bbox = (
             round(x1 * inv),

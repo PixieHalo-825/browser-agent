@@ -24,6 +24,7 @@ max_tokens = 4096
 max_plan_steps = 10        # 计划最多步骤数
 max_replans = 3            # Reviewer 触发 replan 的最大次数
 react_max_iterations = 8   # 单步骤 ReAct 循环上限
+repeat_call_limit = 3      # 同一调用连续 N 次返回相同结果时，提示模型换方法
 
 # ------------------------------------------------------------
 # 可切换模型预设（Web UI 顶栏下拉框 / CLI model 命令）
@@ -72,6 +73,8 @@ cpu_limit = 1.0
 network_enabled = false    # 代码执行沙箱默认断网
 daytona_api_key = ""
 daytona_server_url = ""
+auto_start_docker = true   # Docker Desktop 已安装但引擎未运行时，自动启动并等待
+docker_start_timeout = 90
 
 [mcp]
 enabled = true
@@ -79,8 +82,14 @@ enabled = true
 servers = ["filesystem", "search"]
 
 [search]
-provider = "duckduckgo"
+# 搜索源按顺序尝试，前一个失败（被限流 / 网络不通 / 没有结果）时自动切到下一个：
+#   bing        国内版 Bing 网页结果，无需 key
+#   duckduckgo  DuckDuckGo 库，无需 key（大陆网络通常连不上）
+#   dashscope   阿里云百炼搜索接口，需要 DASHSCOPE_API_KEY
+# 新增搜索源：继承 app/tools/search_providers.py 的 SearchProvider 并注册即可
+providers = ["bing", "duckduckgo", "dashscope"]
 max_results = 5
+timeout = 15
 
 [workspace]
 root = "./workspace"

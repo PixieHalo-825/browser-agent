@@ -2,6 +2,7 @@
 
 轻量 Tkinter 窗口：环境自检（venv / Playwright / API Key / Docker）+
 一键启动 Web 界面、CLI 控制台、定位评测、测试套件。
+Docker Desktop 已安装但未运行时，可直接在这里把它启动起来。
 
 双击 launcher.bat 或运行:  .venv\\Scripts\\python launcher.py
 """
@@ -12,12 +13,14 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 from tkinter import BOTH, BOTTOM, LEFT, RIGHT, X, ttk
 import tkinter as tk
 
 from app.config import api_key_env_for, get_config
+from app.sandbox.docker_sandbox import docker_engine_running, find_docker_desktop, launch_docker_desktop
 
 ROOT = Path(__file__).resolve().parent
 VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
@@ -55,17 +58,14 @@ def detect_playwright() -> bool:
         return False
 
 
-def detect_docker() -> bool:
-    """True when the Docker engine answers, not merely when the CLI exists."""
-    try:
-        result = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True, timeout=15,
-        )
-    except Exception:
-        return False
-    # With the engine stopped the CLI still runs but exits non-zero.
-    return result.returncode == 0 and bool(result.stdout.strip())
+def detect_docker() -> tuple[bool, bool]:
+    """(Docker Desktop is installed, its engine is answering).
+
+    Goes through the Docker SDK, so it needs neither the docker CLI on PATH
+    nor a running container to tell "stopped" from "not installed".
+    """
+    installed = find_docker_desktop() is not None
+    return installed, docker_engine_running()
 
 
 class Launcher(tk.Tk):
@@ -127,7 +127,10 @@ class Launcher(tk.Tk):
     def _build_buttons(self):
         box = tk.Frame(self, bg=BG)
         box.pack(fill=BOTH, expand=True, padx=24)
-        self.btn_web = self._action_button(box, "🌐  Web 界面  (推荐)", ACCENT, self.toggle_web, first=True)
+        # Only shown when Docker Desktop is installed but its engine is stopped.
+        self.btn_docker = self._action_button(box, "🐳  启动 Docker Desktop", YELLOW, self.start_docker, first=True)
+        self.btn_docker.pack_forget()
+        self.btn_web = self._action_button(box, "🌐  Web 界面  (推荐)", ACCENT, self.toggle_web)
         self._action_button(box, "⌨  CLI 控制台", FG, self.run_cli)
         self._action_button(box, "📊  定位成功率评测", FG, self.run_eval)
         self._action_button(box, "✅  测试套件 (pytest)", FG, self.run_tests)
@@ -168,11 +171,56 @@ class Launcher(tk.Tk):
             has_key = detect_api_key()
             key_env = api_key_env_for(get_config().llm.base_url) or "LLM_API_KEY"
             set_result("api_key", has_key, "已配置" if has_key else f"{key_env} 未设置")
-            has_docker = detect_docker()
-            set_result("docker", has_docker, "完整隔离" if has_docker else "未安装，沙箱降级 local")
+            installed, running = detect_docker()
+            if running:
+                docker_note = "完整隔离"
+            elif installed:
+                docker_note = "未运行，可点击下方按钮启动"
+            else:
+                docker_note = "未安装，沙箱降级 local"
+            set_result("docker", running, docker_note)
+            self.after(0, lambda: self._show_docker_button(installed and not running))
             self.after(0, lambda: self.status.config(
                 text="环境就绪" if (has_key and VENV_PY.exists()) else "环境不完整，见上方检查项"
             ))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # --- Docker ----------------------------------------------------------------
+
+    def _show_docker_button(self, show: bool):
+        if show:
+            self.btn_docker.pack(fill=X, pady=(0, 8), before=self.btn_web)
+        else:
+            self.btn_docker.pack_forget()
+
+    def start_docker(self):
+        """Start Docker Desktop and wait for its engine, off the UI thread."""
+        self.btn_docker.config(state="disabled", text="🐳  正在启动 Docker Desktop…")
+        self.status.config(text="正在启动 Docker Desktop，首次启动约需 20–60 秒…")
+
+        def worker():
+            launched = launch_docker_desktop()
+            deadline = time.monotonic() + 120
+            running = False
+            while launched and time.monotonic() < deadline:
+                if docker_engine_running():
+                    running = True
+                    break
+                time.sleep(2)
+
+            def done():
+                self.btn_docker.config(state="normal", text="🐳  启动 Docker Desktop")
+                self._show_docker_button(not running)
+                dot, note = self.check_vars["docker"]
+                dot.config(fg=GREEN if running else YELLOW)
+                note.config(text="完整隔离" if running else "未运行，可点击下方按钮启动")
+                self.status.config(
+                    text="Docker 引擎已启动，沙箱完整隔离可用" if running
+                    else "Docker Desktop 未能启动，沙箱将降级为本地模式"
+                )
+
+            self.after(0, done)
 
         threading.Thread(target=worker, daemon=True).start()
 

@@ -65,6 +65,9 @@ class AgentConfig(BaseModel):
     max_plan_steps: int = 10
     max_replans: int = 3
     react_max_iterations: int = 8
+    # The same tool call with the same result this many times in one step
+    # triggers a hint to the model to change approach.
+    repeat_call_limit: int = 3
 
 
 class BrowserConfig(BaseModel):
@@ -106,6 +109,10 @@ class SandboxConfig(BaseModel):
     daytona_api_key: str = ""
     daytona_server_url: str = ""
     daytona_snapshot: str = "python-runner"
+    # When Docker Desktop is installed but its engine is not running, start it
+    # and wait up to docker_start_timeout seconds instead of degrading.
+    auto_start_docker: bool = True
+    docker_start_timeout: float = 90.0
 
 
 class MCPConfig(BaseModel):
@@ -117,8 +124,14 @@ class MCPConfig(BaseModel):
 
 
 class SearchConfig(BaseModel):
-    provider: str = "duckduckgo"
+    """Web search: providers are tried in order until one returns results."""
+
+    # bing (cn.bing.com page, no key), duckduckgo (needs reachable Bing/DuckDuckGo),
+    # dashscope (Alibaba Cloud Bailian search API, needs DASHSCOPE_API_KEY).
+    providers: list[str] = Field(default_factory=lambda: ["bing", "duckduckgo", "dashscope"])
     max_results: int = 5
+    timeout: float = 15.0
+    dashscope_api_key: str = ""
 
 
 class WorkspaceConfig(BaseModel):
@@ -160,6 +173,7 @@ _ENV_OVERRIDES = {
     "llm.base_url": "LLM_BASE_URL",
     "llm.model": "LLM_MODEL",
     "llm.vision_model": "VISION_MODEL",
+    "search.dashscope_api_key": "DASHSCOPE_API_KEY",
     "sandbox.daytona_api_key": "DAYTONA_API_KEY",
     "sandbox.daytona_server_url": "DAYTONA_SERVER_URL",
 }

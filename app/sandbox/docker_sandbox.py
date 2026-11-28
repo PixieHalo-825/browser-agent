@@ -16,6 +16,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
 from typing import Optional
 
 from app.config import get_config
@@ -24,6 +29,79 @@ from app.sandbox.base import ExecutionResult, SandboxProvider
 logger = logging.getLogger(__name__)
 
 PREFERRED_IMAGES = ("browser-agent-sandbox:latest", "python:3.11-slim")
+
+DOCKER_DESKTOP_EXE = "Docker Desktop.exe"
+
+
+def find_docker_desktop() -> Optional[Path]:
+    """Path of the Docker Desktop launcher, or None where it is not installed."""
+    if sys.platform != "win32":
+        return None
+    roots = []
+    if os.environ.get("ProgramFiles"):  # machine-wide install
+        roots.append(Path(os.environ["ProgramFiles"]) / "Docker" / "Docker")
+    if os.environ.get("LOCALAPPDATA"):  # per-user install
+        roots.append(Path(os.environ["LOCALAPPDATA"]) / "Programs" / "DockerDesktop")
+    for root in roots:
+        launcher = root / DOCKER_DESKTOP_EXE
+        if launcher.is_file():
+            return launcher
+    return None
+
+
+def docker_engine_running() -> bool:
+    """True when the local Docker engine answers a ping."""
+    try:
+        import docker
+
+        return bool(docker.from_env().ping())
+    except Exception:
+        return False
+
+
+def launch_docker_desktop(launcher: Optional[Path] = None) -> bool:
+    """Start Docker Desktop in the background. False when it is not installed."""
+    launcher = launcher or find_docker_desktop()
+    if launcher is None:
+        return False
+    subprocess.Popen(
+        [str(launcher)],
+        cwd=str(launcher.parent),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=(subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+        if sys.platform == "win32"
+        else 0,
+    )
+    logger.info("Starting Docker Desktop: %s", launcher)
+    return True
+
+
+async def wait_for_engine(timeout: float, poll: float = 2.0) -> bool:
+    """Wait until the Docker engine answers, for at most ``timeout`` seconds."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            # A half-started engine can accept the pipe and still not answer,
+            # so the ping itself is bounded too.
+            if await asyncio.wait_for(asyncio.to_thread(docker_engine_running), timeout=10):
+                return True
+        except asyncio.TimeoutError:
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        await asyncio.sleep(poll)
+
+
+async def ensure_docker_engine(timeout: float) -> bool:
+    """Bring the engine up when Docker Desktop is installed but not running."""
+    if await asyncio.to_thread(docker_engine_running):
+        return True
+    if not launch_docker_desktop():
+        return False
+    return await wait_for_engine(timeout)
 
 
 class DockerSandbox(SandboxProvider):

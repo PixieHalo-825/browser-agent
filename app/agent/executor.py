@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from typing import Any
 
 from app.agent.planner import plan_status_text
@@ -71,6 +72,42 @@ def _executor_system(state: AgentState) -> str:
     )
 
 
+_STEP_KICKOFF = "现在执行步骤"
+
+
+def repeated_calls(messages: list[dict], limit: int) -> list[str]:
+    """Tool calls made ``limit`` or more times in the current step with the
+    same arguments and the same result, as ``name(arguments)`` strings.
+
+    Only identical results count: repeating a call while the page changes
+    (scrolling, waiting) is legitimate, getting the same answer over and over
+    is a loop.
+    """
+    start = 0
+    for position in range(len(messages) - 1, -1, -1):
+        message = messages[position]
+        if message.get("role") == "user" and str(message.get("content", "")).startswith(_STEP_KICKOFF):
+            start = position + 1
+            break
+    step = messages[start:]
+    outputs = {m.get("tool_call_id"): m.get("content", "") for m in step if m.get("role") == "tool"}
+    counts: Counter = Counter()
+    for message in step:
+        if message.get("role") != "assistant":
+            continue
+        for call in message.get("tool_calls") or []:
+            function = call.get("function", {})
+            counts[(function.get("name", ""), function.get("arguments") or "", outputs.get(call.get("id"), ""))] += 1
+    return [f"{name}({arguments[:80]})" for (name, arguments, _), count in counts.items() if count >= limit]
+
+
+def _nudge(note: str, limit: int) -> str:
+    return (
+        f"（系统提示：工具调用 {note} 已连续 {limit} 次返回相同结果。"
+        "请不要再重复：换参数、换工具，或确认目标已达成后结束本步骤。）"
+    )
+
+
 async def executor_node(state: AgentState) -> dict:
     cfg = get_config().agent
     registry = get_registry()
@@ -81,12 +118,13 @@ async def executor_node(state: AgentState) -> dict:
     plan = state.get("plan", [])
     step = plan[idx] if idx < len(plan) else {"description": "(无步骤)", "step_index": idx + 1}
 
+    history = state.get("messages", [])
     new_messages: list[dict] = []
 
     # Kick off a fresh step with an explicit instruction message.
     if iteration == 0:
         new_messages.append(
-            {"role": "user", "content": f"现在执行步骤 {step['step_index']}：{step['description']}"}
+            {"role": "user", "content": f"{_STEP_KICKOFF} {step['step_index']}：{step['description']}"}
         )
         if state.get("verdict_reason"):
             new_messages.append(
@@ -97,6 +135,13 @@ async def executor_node(state: AgentState) -> dict:
             updated_plan[idx]["status"] = "in_progress"
         plan = updated_plan
 
+    # Break out of a loop: the same call answered the same way repeatedly.
+    already = " ".join(str(m.get("content", "")) for m in history if m.get("role") == "user")
+    for note in repeated_calls(history, cfg.repeat_call_limit):
+        if f"工具调用 {note} 已连续" not in already:
+            logger.warning("[Executor] repeated call detected: %s", note)
+            new_messages.append({"role": "user", "content": _nudge(note, cfg.repeat_call_limit)})
+
     # Iteration cap: force the step to review without another LLM call.
     if iteration >= cfg.react_max_iterations:
         logger.warning("[Executor] step %d hit iteration cap (%d)", idx + 1, cfg.react_max_iterations)
@@ -105,9 +150,8 @@ async def executor_node(state: AgentState) -> dict:
         )
         return {"messages": new_messages, "plan": plan}
 
-    messages = [{"role": "system", "content": _executor_system(state)}] + _trim(
-        state.get("messages", [])
-    )
+    # The new messages go to the model now as well as into the history.
+    messages = [{"role": "system", "content": _executor_system(state)}] + _trim(history) + new_messages
     tools = registry.openai_schemas()
     response = await llm.ask(messages, tools=tools)
     choice = response.choices[0].message

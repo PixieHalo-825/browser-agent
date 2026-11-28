@@ -24,7 +24,12 @@ from typing import Optional, Sequence, Tuple
 
 from playwright.async_api import Page
 
-from app.browser.dom_extractor import DomElement, extract_interactive_elements, format_elements
+from app.browser.dom_extractor import (
+    MARKER_ATTR,
+    DomElement,
+    extract_interactive_elements,
+    format_elements,
+)
 from app.config import get_config
 from app.llm.llm import get_llm
 from app.llm.vision import load_screenshot, get_vision_locator
@@ -54,11 +59,13 @@ class LocateResult:
     confidence: float = 0.0
     reason: str = ""
     candidates: Sequence[DomElement] = ()
+    warning: str = ""  # non-fatal note about where the click will land
 
     def describe(self) -> str:
         if not self.success:
             return f"定位失败 ({self.channel}): {self.reason}"
-        return f"定位成功 [{self.channel}] 置信度={self.confidence:.2f} point={self.point}"
+        text = f"定位成功 [{self.channel}] 置信度={self.confidence:.2f} point={self.point}"
+        return text + (f" ⚠ {self.warning}" if self.warning else "")
 
 
 def _normalize(s: str) -> str:
@@ -100,10 +107,101 @@ def rule_score(element: DomElement, target: str) -> float:
     return best
 
 
+# Clicking empty page background is only legitimate when that was the request.
+_BLANK_AREA = re.compile(r"空白|背景|任意位置|blank|background|empty area|anywhere", re.I)
+
+_HIT_TEST_JS = """
+([x, y, idx, marker]) => {
+  let target = null;
+  if (idx !== null && idx !== undefined) {
+    target = document.querySelector('[' + marker + '="' + idx + '"]');
+    if (target) {
+      // Playwright's element click scrolls its target into view first; do the
+      // same, so the check looks exactly where the click is going to land.
+      const before = target.getBoundingClientRect();
+      const inView = before.top >= 0 && before.left >= 0 && before.bottom <= innerHeight && before.right <= innerWidth;
+      if (!inView) target.scrollIntoView({ block: "center", inline: "center" });
+      const rect = target.getBoundingClientRect();
+      x = rect.x + rect.width / 2;
+      y = rect.y + rect.height / 2;
+    }
+  }
+  if (!(x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)) {
+    return { ok: false, reason: "outside the viewport" };
+  }
+  const hit = document.elementFromPoint(x, y);
+  if (!hit) return { ok: false, reason: "nothing at that point" };
+  const tag = hit.tagName.toLowerCase();
+  if (tag === "html" || tag === "body") return { ok: false, reason: "empty page background" };
+  if (!target) return { ok: true, x: x, y: y };  // coordinates only (canvas and the like)
+  const label = tag + (hit.className && typeof hit.className === "string" ? "." + hit.className.trim().split(/\\s+/)[0] : "");
+  if (target.getRootNode() !== document) return { ok: true, x: x, y: y };  // shadow DOM: cannot compare
+  if (target === hit || target.contains(hit)) return { ok: true, x: x, y: y };
+  return { ok: false, reason: "covered", by: label, x: x, y: y };
+}
+"""
+
+
+async def hit_test(
+    page: Page,
+    point: Point,
+    element_index: Optional[int],
+    description: str = "",
+) -> Tuple[bool, str, Optional[Point], str]:
+    """Check what a click at ``point`` would really land on.
+
+    Returns (ok, reason, point to use, warning). A DOM target is scrolled into
+    view first and its fresh centre becomes the point to use. Three situations
+    are refused: the point is outside the viewport, nothing is there, or a
+    vision-only point lands on empty page background (unless the description
+    asked for exactly that). A DOM target covered by another element is only
+    reported: custom widgets often place a decorative layer over the real
+    control, and clicking that layer is what makes them work.
+    """
+    try:
+        verdict = await page.evaluate(_HIT_TEST_JS, [point[0], point[1], element_index, MARKER_ATTR])
+    except Exception as exc:  # the guard itself must never break locating
+        return True, "", None, ""
+    if verdict.get("ok"):
+        return True, "", (round(verdict["x"]), round(verdict["y"])), ""
+    reason = verdict.get("reason", "unknown")
+    if reason == "empty page background" and element_index is None and _BLANK_AREA.search(description or ""):
+        return True, "", None, ""
+    if reason == "covered":
+        return True, "", (round(verdict["x"]), round(verdict["y"])), f"点击位置被 <{verdict.get('by')}> 覆盖，请核对点击效果"
+    return False, reason, None, ""
+
+
 class GuiPlusLocator:
     """Dual-channel (DOM text + vision) element locator."""
 
     async def locate(
+        self,
+        page: Page,
+        description: str,
+        mode: str = "gui-plus",  # "gui-plus" | "dom-only"
+    ) -> LocateResult:
+        result = await self._locate(page, description, mode)
+        if not result.success:
+            return result
+        ok, reason, fresh, warning = await hit_test(page, result.point, result.element_index, description)
+        if not ok:
+            # A point that cannot be the target is worse than no result: the
+            # agent would act on it. Report a miss so it can try differently.
+            logger.info("[GUI-Plus] %s result rejected: %s", result.channel, reason)
+            return LocateResult(
+                success=False,
+                channel=result.channel,
+                confidence=result.confidence,
+                reason=f"{reason}（{result.channel} 给出的位置落在了这里）",
+                candidates=result.candidates,
+            )
+        if fresh is not None:
+            result.point = fresh
+        result.warning = warning
+        return result
+
+    async def _locate(
         self,
         page: Page,
         description: str,

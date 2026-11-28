@@ -3,7 +3,8 @@
 Selection order (``provider = "auto"``):
 
 1. Daytona cloud sandbox – if ``daytona-sdk`` is installed AND an API key is set,
-2. local Docker sandbox  – if the Docker daemon is reachable,
+2. local Docker sandbox  – if the Docker engine answers; when Docker Desktop is
+   installed but stopped it is started and waited for (``auto_start_docker``),
 3. local subprocess      – last resort, prints an explicit isolation warning.
 
 Explicit ``provider`` values short-circuit the chain.
@@ -16,7 +17,11 @@ from typing import Optional
 
 from app.config import get_config
 from app.sandbox.base import ExecutionResult, SandboxProvider
-from app.sandbox.docker_sandbox import DockerSandbox
+from app.sandbox.docker_sandbox import (
+    DockerSandbox,
+    ensure_docker_engine,
+    find_docker_desktop,
+)
 from app.sandbox.local_sandbox import LocalSubprocessSandbox
 
 logger = logging.getLogger(__name__)
@@ -42,7 +47,7 @@ async def create_sandbox() -> SandboxProvider:
     except Exception as exc:
         logger.warning(
             "Docker 沙箱不可用（%s），降级为本地子进程沙箱（无网络/文件系统隔离）。"
-            "安装 Docker Desktop 或配置 DAYTONA_API_KEY 可恢复完整隔离。",
+            "安装并启动 Docker Desktop 或配置 DAYTONA_API_KEY 可恢复完整隔离。",
             exc,
         )
         return LocalSubprocessSandbox()
@@ -67,20 +72,42 @@ def _create_daytona(strict: bool) -> SandboxProvider:
 
 
 async def _create_docker(strict: bool) -> SandboxProvider:
-    """Probe Docker with a real container run; raise when unusable.
+    """Return a probed Docker sandbox; raise when Docker cannot be used.
 
     DockerSandbox.run() reports daemon failures inside ExecutionResult rather
-    than raising, so the probe must inspect the result.
+    than raising, so the probe inspects the result. When the engine is merely
+    not running, Docker Desktop is started first instead of degrading.
     """
     sandbox = DockerSandbox()
-    probe = await sandbox.run("print('sandbox-ready')", timeout=15)
-    if probe.exit_code == 0 and "sandbox-ready" in probe.stdout:
+    reason = await _probe(sandbox)
+    if reason is None:
         logger.info("使用本地 Docker 沙箱 (镜像: %s)", sandbox._image)
         return sandbox
-    reason = probe.stderr or probe.stdout.strip() or f"exit_code={probe.exit_code}"
+
+    cfg = get_config().sandbox
+    if cfg.auto_start_docker and find_docker_desktop() is not None:
+        logger.warning("Docker 引擎未响应（%s），正在启动 Docker Desktop，最多等待 %.0f 秒…",
+                       reason, cfg.docker_start_timeout)
+        if await ensure_docker_engine(cfg.docker_start_timeout):
+            reason = await _probe(sandbox)
+            if reason is None:
+                logger.info("Docker Desktop 已启动，使用 Docker 沙箱 (镜像: %s)", sandbox._image)
+                return sandbox
+            reason = f"引擎启动后探测仍失败: {reason}"
+        else:
+            reason = f"Docker Desktop 在 {cfg.docker_start_timeout:.0f} 秒内未就绪"
+
     if strict:
         raise RuntimeError(f"provider=docker 但 Docker 不可用: {reason}")
     raise RuntimeError(reason)
+
+
+async def _probe(sandbox: DockerSandbox) -> Optional[str]:
+    """None when a container ran fine, otherwise why it did not."""
+    probe = await sandbox.run("print('sandbox-ready')", timeout=15)
+    if probe.exit_code == 0 and "sandbox-ready" in probe.stdout:
+        return None
+    return probe.stderr or probe.stdout.strip() or f"exit_code={probe.exit_code}"
 
 
 _sandbox: Optional[SandboxProvider] = None
