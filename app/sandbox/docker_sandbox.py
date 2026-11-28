@@ -93,6 +93,9 @@ class DockerSandbox(SandboxProvider):
             detach=True,
             network_mode="none",
             mem_limit=cfg.memory_limit,
+            # Without this Docker grants swap equal to the limit, doubling what
+            # the code may actually consume; equal values mean "no swap".
+            memswap_limit=cfg.memory_limit,
             nano_cpus=int(cfg.cpu_limit * 1e9),
             read_only=True,
             tmpfs={"/tmp": "size=64m"},
@@ -112,16 +115,19 @@ class DockerSandbox(SandboxProvider):
             except Exception:  # pragma: no cover - best effort
                 pass
         try:
-            logs = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+            # Fetched separately: requesting both streams at once interleaves
+            # them, which would bury tracebacks (stderr) in the stdout stream.
+            stdout = container.logs(stdout=True, stderr=False).decode("utf-8", errors="replace")
+            stderr = container.logs(stdout=False, stderr=True).decode("utf-8", errors="replace")
         except Exception:
-            logs = ""
+            stdout = stderr = ""
         try:
             container.remove(force=True)
         except Exception:  # pragma: no cover
             pass
         return ExecutionResult(
-            stdout=logs,
-            stderr="",
+            stdout=stdout,
+            stderr=stderr,
             exit_code=exit_code,
             timed_out=timed_out,
             provider=self.name,

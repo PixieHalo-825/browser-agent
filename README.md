@@ -131,11 +131,21 @@ Agent 代码零改动——Executor 只看到统一的工具注册表 `app/mcp/r
 | `docker` | 每次执行临时容器：`network=none` + `read_only` + `mem_limit` + 超时 kill |
 | `daytona` | daytona-sdk 云沙箱（`pip install daytona-sdk` + `DAYTONA_API_KEY`） |
 
-构建推荐沙箱镜像（预装 pandas/requests，非 root）：
+构建推荐沙箱镜像（预装 pandas/numpy/requests，非 root）：
 
 ```bash
 docker build -t browser-agent-sandbox .
 ```
+
+国内网络直连不了 Docker Hub / PyPI 时，用构建参数指向镜像源（不需要改 Docker 全局配置）：
+
+```bash
+docker build -t browser-agent-sandbox \
+  --build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.11-slim \
+  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple .
+```
+
+隔离项均有测试覆盖（`tests/test_sandbox.py`，Docker 可用时自动执行）：断网、只读根文件系统、内存硬上限（禁用 swap）、超时后容器清理、stdout/stderr 分离。
 
 ## 架构
 
@@ -198,4 +208,4 @@ browser-agent/
 
 - 视觉通道依赖 VLM 的 grounding 质量，推荐 qwen3-vl-plus 及以上；弱模型下 SoM 模式比 bbox 回归更稳
 - DuckDuckGo 搜索偶发反爬限流（可换 provider）
-- Windows 下未安装 Docker Desktop 时沙箱降级为本地子进程（无网络隔离，启动时警告）
+- Windows 下未安装 Docker Desktop（或引擎未启动）时沙箱降级为本地子进程（无网络隔离，启动时警告）

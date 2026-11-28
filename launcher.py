@@ -56,14 +56,16 @@ def detect_playwright() -> bool:
 
 
 def detect_docker() -> bool:
+    """True when the Docker engine answers, not merely when the CLI exists."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True, timeout=4,
+            capture_output=True, timeout=15,
         )
-        return True
     except Exception:
         return False
+    # With the engine stopped the CLI still runs but exits non-zero.
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 class Launcher(tk.Tk):

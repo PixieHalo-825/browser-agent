@@ -1,0 +1,7 @@
+# 构建上下文只保留镜像真正需要的源码目录（Dockerfile.mcp 只 COPY app/ 与 mcp_servers/）。
+# 其余一律排除：.venv / .git / workspace（运行产物）/ config.toml（本地配置与密钥）等。
+*
+!app/
+!mcp_servers/
+**/__pycache__/
+**/*.pyc
